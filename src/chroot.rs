@@ -41,6 +41,32 @@ impl ChrootUnit {
         Ok(unit)
     }
 
+    pub fn find_units(config: &Config) -> Result<Vec<ChrootUnit>, ChrootManagerError> {
+        let rd = fs::read_dir(&config.chroot_base_dir);
+
+        if let Err(e) = rd {
+            println!("   ❌ Directory access error : {e}");
+            println!(
+                "   💡 Check permissions for : {}",
+                config.chroot_base_dir.display()
+            );
+            return Err(ChrootManagerError::from(e));
+        }
+
+        let dirs = rd?
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|e| e.is_dir())
+            .collect::<Vec<_>>();
+
+        let units = dirs
+            .iter()
+            .map(|p| ChrootUnit::load(p))
+            .collect::<Result<Vec<ChrootUnit>, ChrootManagerError>>()?;
+
+        Ok(units)
+    }
+
     /// Prepare the chroot directory
     pub async fn prepare_chroot_directory(&self) -> Result<(), ChrootManagerError> {
         log::info!(
