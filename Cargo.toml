@@ -18,3 +18,4 @@ xml-rs = "0.8.27"
 sha2 = "0.10.9"
 strum = { version = "0.27.1", features = ["derive"] }
 inquire = "0.7.5"
+cursive = { version = "0.21.1", features = ["termion-backend"] }
