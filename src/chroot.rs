@@ -219,7 +219,43 @@ impl ChrootUnit {
         println!("entry into the chroot:: {}", self.chroot_path.display());
         println!("Type 'exit' to exit the chroot");
 
-        let status = Command::new("chroot").arg(&self.chroot_path).status()?;
+        let script_path = self.chroot_path.join("tmp").join("chroot_shell.sh");
+        let script_content = format!(
+            r#"#!/bin/bash
+export ENV="/tmp/chroot_env.sh"
+cat > /tmp/chroot_env.sh << 'EOF'
+source /etc/profile 2>/dev/null || true
+export TERM=xterm-256color
+eval "$(dircolors -b 2>/dev/null || true)"
+alias ls='ls --color=auto'
+alias ll='ls -l --color=auto'
+alias la='ls -la --color=auto'
+alias grep='grep --color=auto'
+export PS1='\[\e[1;32m\](chroot) \[\e[01;31m\]{}\[\e[01;34m\] \w \$\[\e[00m\] '
+EOF
+exec bash --posix -i
+"#,
+            self.name
+        );
+
+        fs::write(&script_path, script_content)?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(&script_path)?.permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(&script_path, perms)?;
+        }
+
+        let status = Command::new("chroot")
+            .arg(&self.chroot_path)
+            .arg("/tmp/chroot_shell.sh")
+            .status()?;
+
+        // Clean up temporary files
+        fs::remove_file(&script_path).ok();
+        fs::remove_file(self.chroot_path.join("tmp").join("chroot_env.sh")).ok();
 
         if status.success() {
             println!("Sortie du chroot");
