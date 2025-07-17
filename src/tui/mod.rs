@@ -14,7 +14,7 @@ pub fn run(config: &Config) -> Result<(), ChrootManagerError> {
             LinearLayout::horizontal()
                 .child(list(config)?)
                 .child(DummyView)
-                .child(Button::new("Quit", Cursive::quit)),
+                .child(LinearLayout::vertical().child(Button::new("Quit", Cursive::quit))),
         )
         .title("Select a profile"),
     );

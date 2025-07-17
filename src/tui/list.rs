@@ -20,7 +20,7 @@ pub fn list(
     let unit_selected = select
         .on_submit(show_unit_info)
         .with_name("select")
-        .full_screen();
+        .min_width(15);
 
     Ok(unit_selected)
 }
