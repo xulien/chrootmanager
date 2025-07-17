@@ -38,6 +38,7 @@ pub enum Commands {
     /// List all chroots
     List,
     Mirror,
+    Tui,
 }
 
 pub fn amd64_profile_selection() -> Result<Arch, ChrootManagerError> {
@@ -151,28 +152,7 @@ pub async fn list_chroots(config: &Config) -> Result<(), Box<dyn std::error::Err
         return Ok(());
     }
 
-    let rd = std::fs::read_dir(&config.chroot_base_dir);
-
-    if let Err(e) = rd {
-        println!("   ❌ Directory access error : {e}");
-        println!(
-            "   💡 Check permissions for : {}",
-            config.chroot_base_dir.display()
-        );
-        return Ok(());
-    }
-
-    let dirs = rd
-        .unwrap()
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .filter(|e| e.is_dir())
-        .collect::<Vec<_>>();
-
-    let units = dirs
-        .iter()
-        .map(|p| ChrootUnit::load(p))
-        .collect::<Result<Vec<ChrootUnit>, ChrootManagerError>>()?;
+    let units = ChrootUnit::find_units(config)?;
 
     if units.is_empty() {
         println!(
