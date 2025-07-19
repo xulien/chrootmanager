@@ -1,7 +1,8 @@
-use crate::{error::ChrootManagerError, mirror::Mirrors};
+use crate::{error::ChrootManagerError};
 use inquire::{InquireError, Select};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, fs, io, path::PathBuf};
+use crate::mirror::mirrors::Mirrors;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
@@ -28,7 +29,7 @@ impl Default for Config {
 }
 
 impl Config {
-    pub fn ensure_chroot_base_dir(&self) -> Result<(), io::Error> {
+    pub fn ensure_chroot_base_dir(&self) -> Result<(), ChrootManagerError> {
         if !self.chroot_base_dir.exists() {
             fs::create_dir_all(&self.chroot_base_dir)?;
             log::info!(
@@ -40,7 +41,7 @@ impl Config {
     }
 
     /// Loading configuration with automatic migration
-    pub async fn load() -> Result<Self, ChrootManagerError> {
+    pub fn load() -> Result<Self, ChrootManagerError> {
         let config_path = Self::default_config_path();
 
         if config_path.exists() {
@@ -74,7 +75,7 @@ impl Config {
 
             let mut config = Self::default();
             config.ensure_cache_dir()?;
-            config.configure_mirrors().await?;
+            config.configure_mirrors()?;
 
             println!("✅ Initial configuration created !\n");
 
@@ -121,8 +122,8 @@ impl Config {
     }
 
     /// Interactive function to choose which mirror to save in the configuration
-    pub async fn configure_mirrors(&mut self) -> Result<(), ChrootManagerError> {
-        let mirrors = Mirrors::fetch().await?;
+    pub fn configure_mirrors(&mut self) -> Result<(), ChrootManagerError> {
+        let mirrors = Mirrors::fetch()?;
 
         let mut new_mirrors: HashSet<String> = HashSet::new();
 
@@ -196,13 +197,9 @@ impl Config {
         Ok(())
     }
 
-    pub fn ensure_cache_dir(&self) -> Result<(), io::Error> {
+    pub fn ensure_cache_dir(&self) -> Result<(), ChrootManagerError> {
         if !self.stage3_cache_dir.exists() {
             fs::create_dir_all(&self.stage3_cache_dir)?;
-            log::info!(
-                "Répertoire de cache créé : {}",
-                self.stage3_cache_dir.display()
-            );
         }
         Ok(())
     }

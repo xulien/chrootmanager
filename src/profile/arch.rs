@@ -2,10 +2,11 @@ use crate::error::ChrootManagerError;
 use crate::profile::amd64::Amd64Profile;
 use crate::profile::arm64::Arm64Profile;
 
+use crate::error::ChrootManagerError::System;
 use std::fmt::{Display, Formatter};
 use std::path::Path;
 use std::process::Command;
-use strum::EnumIter;
+use strum::{EnumIter, IntoEnumIterator};
 
 pub struct ProfileLink(pub String);
 impl ProfileLink {
@@ -73,6 +74,12 @@ impl Arch {
             Arch::Arm64(_) => "arm64",
         }
     }
+
+    pub fn labels() -> Vec<String> {
+        Self::iter()
+            .map(|p| p.arch().to_string())
+            .collect::<Vec<String>>()
+    }
     pub fn read_fs(path: &Path) -> Result<Arch, ChrootManagerError> {
         let profile_link_path = path.join("etc").join("portage").join("make.profile");
 
@@ -80,19 +87,16 @@ impl Arch {
             .arg(format!("{}", profile_link_path.display()))
             .output()
             .map_err(|e| {
-                log::error!(
+                System(format!(
                     "Error reading profile symbolic link {} : {e}",
                     profile_link_path.display()
-                );
-                ChrootManagerError::Io(e)
+                ))
             })?;
 
         if output.status.success() {
             log::info!("Profile reading successful");
             match output.stdout.is_empty() {
-                true => Err(ChrootManagerError::Command(
-                    "Error reading profile, output is empty".to_string(),
-                )),
+                true => Err(System("Error reading profile, output is empty".to_string())),
                 false => {
                     let out = String::from_utf8_lossy(&output.stdout).to_string();
                     log::info!("out : {out}");
@@ -101,7 +105,7 @@ impl Arch {
             }
         } else {
             let error_msg = String::from_utf8_lossy(&output.stderr);
-            Err(ChrootManagerError::Command(format!(
+            Err(System(format!(
                 "Error reading profile {}: {error_msg}",
                 profile_link_path.display()
             )))
@@ -132,8 +136,10 @@ impl From<ProfileLink> for Arch {
             "amd64-split-usr" => Arch::Amd64(Amd64Profile::OpenrcSplitusr),
             "amd64-hardened" => Arch::Amd64(Amd64Profile::HardenedOpenrc),
             "amd64-hardened-systemd" => Arch::Amd64(Amd64Profile::HardenedSystemd),
-            "amd64-selinux" => Arch::Amd64(Amd64Profile::HardenedSelinuxOpenrc),
-            _ => panic!("Profile link could not be parsed"),
+            "amd64-hardened-selinux" => {
+                Arch::Amd64(Amd64Profile::HardenedSelinuxOpenrc)
+            }
+            _ => panic!("Profile link could not be parsed {s}"),
         }
     }
 }

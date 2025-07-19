@@ -3,7 +3,7 @@ use log::{debug, info, warn};
 use std::io::Cursor;
 use xml::reader::{EventReader, XmlEvent};
 
-const MIRRORS_URL: &str = "https://api.gentoo.org/mirrors/distfiles.xml";
+pub(crate) const MIRRORS_URL: &str = "https://api.gentoo.org/mirrors/distfiles.xml";
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Protocol {
@@ -108,7 +108,7 @@ impl From<xml::reader::Error> for MirrorError {
 }
 
 /// Parse the XML data of mirrors and return a list of mirrors
-fn parse_mirrors_xml(data: &[u8]) -> Result<Vec<Mirror>, MirrorError> {
+pub(crate) fn parse_mirrors_xml(data: &[u8]) -> Result<Vec<Mirror>, MirrorError> {
     // Validation du format de base
     if data.is_empty() {
         return Err(MirrorError::InvalidFormat(
@@ -320,18 +320,4 @@ fn parse_mirrors_xml(data: &[u8]) -> Result<Vec<Mirror>, MirrorError> {
 
     info!("Parsing completed. {} mirrors found", mirrors.len());
     Ok(mirrors)
-}
-
-pub async fn get_mirrors() -> Result<Vec<Mirror>, MirrorError> {
-    info!("Data recovery from {MIRRORS_URL}");
-
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()?;
-    let response = client.get(MIRRORS_URL).send().await?;
-    let data = response.bytes().await?;
-
-    info!("Data received: {} bytes", data.len());
-
-    parse_mirrors_xml(&data)
 }

@@ -1,5 +1,6 @@
 use crate::config::Config;
 use crate::error::ChrootManagerError;
+use crate::error::ChrootManagerError::Stage3ExtractionFailed;
 use crate::profile::amd64::Amd64Profile;
 use crate::profile::arch::Arch;
 use std::fs;
@@ -14,8 +15,8 @@ pub struct ChrootUnit {
 }
 
 impl ChrootUnit {
-    pub async fn new(name: String, profile: Option<&Arch>) -> Result<Self, ChrootManagerError> {
-        let config = Config::load().await?;
+    pub fn new(name: String, profile: Option<&Arch>) -> Result<Self, ChrootManagerError> {
+        let config = Config::load()?;
         let stage3_profile = profile.unwrap_or(&Arch::Amd64(Amd64Profile::Openrc));
         let chroot_path = Path::new(&config.chroot_base_dir).join(&name);
         Ok(Self {
@@ -68,7 +69,7 @@ impl ChrootUnit {
     }
 
     /// Prepare the chroot directory
-    pub async fn prepare_chroot_directory(&self) -> Result<(), ChrootManagerError> {
+    pub fn prepare_chroot_directory(&self) -> Result<(), ChrootManagerError> {
         log::info!(
             "Creating the chroot directory: {}",
             self.chroot_path.display()
@@ -85,10 +86,7 @@ impl ChrootUnit {
     }
 
     /// Extract stage3 into the chroot directory
-    pub async fn extract_stage3(
-        &self,
-        cached_stage3_path: &Path,
-    ) -> Result<(), ChrootManagerError> {
+    pub fn extract_stage3(&self, cached_stage3_path: &Path) -> Result<(), ChrootManagerError> {
         log::info!(
             "Extracting from stage3: {} to {}",
             cached_stage3_path.display(),
@@ -113,9 +111,7 @@ impl ChrootUnit {
 
         if !output.status.success() {
             let error_msg = String::from_utf8_lossy(&output.stderr);
-            return Err(ChrootManagerError::Command(format!(
-                "Stage3 extraction failed: {error_msg}"
-            )));
+            return Err(Stage3ExtractionFailed(error_msg.to_string()));
         }
 
         log::info!("Stage3 successfully extracted");
@@ -140,7 +136,7 @@ impl ChrootUnit {
         } else {
             let error_msg = String::from_utf8_lossy(&proc_output.stderr);
             log::error!("Error mounting /proc : {error_msg}");
-            Err(ChrootManagerError::Command(format!(
+            Err(ChrootManagerError::System(format!(
                 "Failed to mount /proc: {error_msg}"
             )))
         }
@@ -162,7 +158,7 @@ impl ChrootUnit {
         } else {
             let error_msg = String::from_utf8_lossy(&output.stderr);
             log::error!("Error mounting rbind of /{mount_point} : {error_msg}");
-            Err(ChrootManagerError::Command(format!(
+            Err(ChrootManagerError::System(format!(
                 "rbind mount failed /{mount_point}: {error_msg}"
             )))
         }
@@ -186,7 +182,7 @@ impl ChrootUnit {
             Ok(self)
         } else {
             let error_msg = String::from_utf8_lossy(&output.stderr);
-            Err(ChrootManagerError::Command(format!(
+            Err(ChrootManagerError::System(format!(
                 "Error mounting make_rslave of /{mount_point}: {error_msg}"
             )))
         }
@@ -207,7 +203,7 @@ impl ChrootUnit {
             Ok(self)
         } else {
             let error_msg = String::from_utf8_lossy(&output.stderr);
-            Err(ChrootManagerError::Command(format!(
+            Err(ChrootManagerError::System(format!(
                 "Error while mounting make_slave of /{mount_point}: {error_msg}"
             )))
         }
@@ -288,9 +284,9 @@ exec bash --posix -i
             log::debug!("le chroot_path: {}", self.chroot_path.display());
             self.cleanup(false)?;
         } else {
-            return Err(ChrootManagerError::Command(
-                "Chroot execution failed".to_string(),
-            ));
+            return Err(ChrootManagerError::ChrootOperation(format!(
+                "Chroot execution failed : {status:?}"
+            )));
         }
 
         Ok(())

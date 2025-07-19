@@ -1,7 +1,6 @@
 mod chroot;
 mod cli;
 mod config;
-mod downloader;
 mod error;
 mod mirror;
 mod profile;
@@ -11,20 +10,19 @@ use clap::Parser;
 use cli::*;
 use config::Config;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
     let cli = Cli::parse();
-    let mut config = Config::load().await?;
+    let mut config = Config::load()?;
 
     match cli.command.unwrap_or(Commands::Tui) {
         Commands::Create {
             name,
             force_download,
-        } => create_chroot(name, force_download, &config).await?,
-        Commands::List => list_chroots(&config).await?,
-        Commands::Mirror => setup_mirrors(&mut config).await?,
+        } => create_chroot(name, force_download, &config)?,
+        Commands::List => list_chroots(&config)?,
+        Commands::Mirror => setup_mirrors(&mut config)?,
         Commands::Tui => tui::run(&config)?,
     };
 

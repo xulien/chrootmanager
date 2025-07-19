@@ -1,8 +1,8 @@
 use crate::{
     chroot::ChrootUnit,
     config::Config,
-    downloader::download_stage3_with_cache,
     error::ChrootManagerError,
+    mirror::stage3::download_stage3_with_cache,
     profile::{amd64::Amd64Profile, arch::Arch, arm64::Arm64Profile},
 };
 use clap::{Parser, Subcommand};
@@ -61,7 +61,7 @@ pub fn arm64_profile_selection() -> Result<Arch, ChrootManagerError> {
     Ok(Arch::Arm64(selected_profile))
 }
 
-pub async fn create_chroot(
+pub fn create_chroot(
     name: String,
     force_download: bool,
     config: &Config,
@@ -74,9 +74,7 @@ pub async fn create_chroot(
 
     config.ensure_chroot_base_dir()?;
 
-    let arch_list = Arch::iter()
-        .map(|p| p.arch().to_string())
-        .collect::<Vec<_>>();
+    let arch_list = Arch::labels();
     let arch_selection: Result<String, InquireError> =
         Select::new("What's your Arch ?", arch_list).prompt();
     let arch_selection = arch_selection?;
@@ -87,7 +85,7 @@ pub async fn create_chroot(
         _ => panic!("Invalid architecture"),
     };
 
-    let chroot_unit = ChrootUnit::new(name.clone(), Some(&selected_profile)).await?;
+    let chroot_unit = ChrootUnit::new(name.clone(), Some(&selected_profile))?;
 
     log::debug!("chroot path: {:?}", chroot_unit.chroot_path);
 
@@ -119,11 +117,11 @@ pub async fn create_chroot(
     }
 
     let cached_path =
-        download_stage3_with_cache(&selected_profile.clone(), config, force_download).await?;
+        download_stage3_with_cache(&selected_profile.clone(), config, force_download)?;
     let cached_path = PathBuf::from(cached_path);
 
-    chroot_unit.prepare_chroot_directory().await?;
-    chroot_unit.extract_stage3(&cached_path).await?;
+    chroot_unit.prepare_chroot_directory()?;
+    chroot_unit.extract_stage3(&cached_path)?;
     chroot_unit.copy_dns_info()?;
 
     println!(
@@ -134,12 +132,12 @@ pub async fn create_chroot(
     );
     println!("📍 Path : {}", chroot_unit.chroot_path.display());
 
-    list_chroots(config).await?;
+    list_chroots(config)?;
 
     Ok(())
 }
 
-pub async fn list_chroots(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+pub fn list_chroots(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "   📂 Chroot Directory : {}",
         config.chroot_base_dir.display()
@@ -175,7 +173,7 @@ pub async fn list_chroots(config: &Config) -> Result<(), Box<dyn std::error::Err
     Ok(())
 }
 
-pub async fn setup_mirrors(config: &mut Config) -> Result<(), ChrootManagerError> {
+pub fn setup_mirrors(config: &mut Config) -> Result<(), ChrootManagerError> {
     let options = vec![
         "Select mirror from the official list (recommended)",
         "Use Gentoo's default mirror",
@@ -186,9 +184,7 @@ pub async fn setup_mirrors(config: &mut Config) -> Result<(), ChrootManagerError
 
     match mirror_configuration_select {
         Ok(choice) => match choice {
-            "Select mirror from the official list (recommended)" => {
-                config.configure_mirrors().await?
-            }
+            "Select mirror from the official list (recommended)" => config.configure_mirrors()?,
             "Use Gentoo's default mirror" => {
                 config.mirrors_url = vec!["https://distfiles.gentoo.org/".to_string()];
                 println!("✅ Using Gentoo's Default Mirror");

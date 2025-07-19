@@ -1,72 +1,114 @@
-use crate::mirror::MirrorError;
-use inquire::InquireError;
-use std::error;
+use std::io;
+use thiserror::Error;
 
-#[derive(Debug)]
+/// Erreurs principales de ChrootManager
+#[derive(Error, Debug)]
 pub enum ChrootManagerError {
-    Io(std::io::Error),
-    TomlParsing(toml::de::Error),
-    TomlSerialization(toml::ser::Error),
-    Mirror(MirrorError),
-    Config(String),
-    Command(String),
-    Download(String),
-    Ui(InquireError),
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("TOML serialization error: {0}")]
+    TomlSer(#[from] toml::ser::Error),
+
+    #[error("TOML deserialization error: {0}")]
+    TomlDe(#[from] toml::de::Error),
+
+    #[error("User interaction error: {0}")]
+    Inquire(#[from] inquire::InquireError),
+
+    #[error("Configuration validation error: {0}")]
+    Validation(String),
+
+    #[error("Migration error: {0}")]
+    Migration(String),
+
+    #[error("HTTP request error: {0}")]
+    Request(#[from] reqwest::Error),
+
+    #[error("File verification failed: {0}")]
+    Verification(String),
+
+    #[error("Cache error: {0}")]
+    Cache(String),
+
+    #[error("No valid filename found")]
+    NoFilename,
+
+    #[error("Network error: {0}")]
+    NetworkError(String),
+
+    #[error("HTTP error: {0}")]
+    HttpError(u16),
+
+    #[error("Invalid URL: {0}")]
+    InvalidUrl(String),
+
+    #[error("No mirrors available")]
+    NoMirrorsAvailable,
+
+    #[error("Download failed: {0}")]
+    DownloadFailed(String),
+
+    #[error("Hash mismatch: expected {expected}, got {actual}")]
+    HashMismatch { expected: String, actual: String },
+
+    #[error("Mirror fetch failed: {0}")]
+    FetchFailed(String),
+
+    #[error("Parse error: {0}")]
+    ParseError(String),
+
+    #[error("Request timeout")]
+    Timeout,
+
+    #[error("Profile error: {0}")]
+    Profile(String),
+
+    #[error("Chroot operation error: {0}")]
+    ChrootOperation(String),
+
+    #[error("Permission error: {0}")]
+    Permission(String),
+
+    #[error("System error: {0}")]
+    System(String),
+
+    #[error("Stage3 extraction failed: {0}")]
+    Stage3ExtractionFailed(String),
+
+    #[error("No stage3 file found")]
+    NoStage3Found,
+
+    #[error("All mirror failed: {0}")]
+    AllMirrorFail(String),
+
+    #[error("Downloaded file is corrupted (SHA256 verification failed).")]
+    DownloadedFileCorrupted,
+
+    #[error("Error deleting corrupted file : {0}")]
+    DeletingCorrupted(io::Error),
+
+    #[error("SHA256 hash not found in file")]
+    SHA256HashNotFoundInFile,
 }
 
-impl std::fmt::Display for ChrootManagerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ChrootManagerError::Io(e) => write!(f, "IO error: {e}"),
-            ChrootManagerError::TomlParsing(e) => write!(f, "Toml parsing error: {e}"),
-            ChrootManagerError::TomlSerialization(e) => write!(f, "Toml serialization error: {e}"),
-            ChrootManagerError::Mirror(e) => write!(f, "Mirror error: {e}"),
-            ChrootManagerError::Command(e) => write!(f, "Command error: {e}"),
-            ChrootManagerError::Download(e) => write!(f, "Download error: {e}"),
-            ChrootManagerError::Config(e) => write!(f, "Parsing error: {e}"),
-            ChrootManagerError::Ui(e) => write!(f, "Ui error: {e}"),
-        }
+impl ChrootManagerError {
+    pub fn profile<S: Into<String>>(msg: S) -> Self {
+        ChrootManagerError::Profile(msg.into())
+    }
+
+    pub fn chroot_operation<S: Into<String>>(msg: S) -> Self {
+        ChrootManagerError::ChrootOperation(msg.into())
+    }
+
+    pub fn permission<S: Into<String>>(msg: S) -> Self {
+        ChrootManagerError::Permission(msg.into())
+    }
+
+    pub fn system<S: Into<String>>(msg: S) -> Self {
+        ChrootManagerError::System(msg.into())
     }
 }
 
-impl error::Error for ChrootManagerError {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        match self {
-            ChrootManagerError::Io(e) => Some(e),
-            ChrootManagerError::TomlParsing(e) => Some(e),
-            ChrootManagerError::TomlSerialization(e) => Some(e),
-            ChrootManagerError::Mirror(e) => Some(e),
-            _ => None,
-        }
-    }
-}
-
-impl From<std::io::Error> for ChrootManagerError {
-    fn from(error: std::io::Error) -> Self {
-        ChrootManagerError::Io(error)
-    }
-}
-
-impl From<toml::de::Error> for ChrootManagerError {
-    fn from(error: toml::de::Error) -> Self {
-        ChrootManagerError::TomlParsing(error)
-    }
-}
-
-impl From<toml::ser::Error> for ChrootManagerError {
-    fn from(error: toml::ser::Error) -> Self {
-        ChrootManagerError::TomlSerialization(error)
-    }
-}
-
-impl From<MirrorError> for ChrootManagerError {
-    fn from(error: MirrorError) -> Self {
-        ChrootManagerError::Mirror(error)
-    }
-}
-
-impl From<InquireError> for ChrootManagerError {
-    fn from(error: InquireError) -> Self {
-        ChrootManagerError::Ui(error)
-    }
-}
+/// Type alias pour les résultats courants
+pub type Result<T> = std::result::Result<T, ChrootManagerError>;

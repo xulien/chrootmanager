@@ -1,11 +1,16 @@
+use crate::error::ChrootManagerError;
+use crate::error::ChrootManagerError::{
+    AllMirrorFail, DeletingCorrupted, DownloadedFileCorrupted, NoStage3Found,
+    SHA256HashNotFoundInFile,
+};
 use crate::{config::Config, profile::arch::Arch};
 use sha2::{Digest, Sha256};
+use std::fmt::format;
 use std::{
-    io::{self, Write},
+    fs::File,
+    io::{self, Read, Write},
     time::{Duration, Instant},
 };
-use tokio::{fs::File, io::AsyncWriteExt};
-use tokio_stream::StreamExt;
 
 /// Utility function to format the size in bytes in a readable way
 fn format_bytes(bytes: u64) -> String {
@@ -100,11 +105,11 @@ fn get_stage3_url(profile: &Arch, config: &Config) -> Vec<String> {
 }
 
 /// Function to attempt downloading a file with multiple mirrors
-async fn try_download_with_mirrors(
+fn try_download_with_mirrors(
     urls: &[String],
-    client: &reqwest::Client,
+    client: &reqwest::blocking::Client,
     show_progress: bool,
-) -> Result<(String, reqwest::Response), Box<dyn std::error::Error>> {
+) -> Result<(String, reqwest::blocking::Response), ChrootManagerError> {
     let mut last_error = None;
 
     for (index, url) in urls.iter().enumerate() {
@@ -112,7 +117,7 @@ async fn try_download_with_mirrors(
             println!("🔗 Attempting with mirror {} : {}", index + 1, url);
         }
         log::debug!("Downloading {url}");
-        match client.get(url).send().await {
+        match client.get(url).send() {
             Ok(response) => {
                 if response.status().is_success() {
                     if show_progress {
@@ -139,17 +144,15 @@ async fn try_download_with_mirrors(
         }
     }
 
-    Err(format!(
-        "All mirrors failed. Last error : {}",
-        last_error.unwrap_or_else(|| "No specific error".to_string())
-    )
-    .into())
+    Err(AllMirrorFail(
+        last_error.unwrap_or_else(|| "No specific error".to_string()),
+    ))
 }
 
-pub async fn get_current_stage3_filename(
+pub fn get_current_stage3_filename(
     arch: &Arch,
     config: &Config,
-) -> Result<String, Box<dyn std::error::Error>> {
+) -> Result<String, ChrootManagerError> {
     let base_urls = get_stage3_url(arch, config);
 
     // Build URLs for the latest file
@@ -158,16 +161,15 @@ pub async fn get_current_stage3_filename(
         .map(|base_url| format!("{base_url}latest-stage3-{arch}.txt"))
         .collect();
 
-    let client = reqwest::Client::new();
+    let client = reqwest::blocking::Client::new();
 
     // Attempt to download the latest file with different mirrors (without progress display)
-    let (_successful_url, response) =
-        try_download_with_mirrors(&latest_urls, &client, false).await?;
+    let (_successful_url, response) = try_download_with_mirrors(&latest_urls, &client, false)?;
 
     // Don't display success message for the txt file
     log::debug!("Latest file downloaded successfully");
 
-    let content = response.text().await?;
+    let content = response.text()?;
 
     // Parse the content to extract the filename
     // The typical format is: timestamp filename size
@@ -203,17 +205,17 @@ pub async fn get_current_stage3_filename(
         }
     }
 
-    Err("No stage3 file found".into())
+    Err(NoStage3Found)
 }
 
-// Download function with cache support and SHA256 verification
-pub async fn download_stage3_with_cache(
+// Download function with cache support and SHA256 verification (synchronous)
+pub fn download_stage3_with_cache(
     profile: &Arch,
     config: &Config,
     force_download: bool,
-) -> Result<String, Box<dyn std::error::Error>> {
+) -> Result<String, ChrootManagerError> {
     println!("🔍 Retrieving information on stage 3...");
-    let filename = get_current_stage3_filename(profile, config).await?;
+    let filename = get_current_stage3_filename(profile, config)?;
     println!("📋 Current stage3 file : {filename}");
 
     // Check if the file already exists in the cache
@@ -224,27 +226,25 @@ pub async fn download_stage3_with_cache(
             println!("💾 Stage3 found in cache, integrity check...");
 
             // Download SHA256 hash for verification
-            match download_stage3_sha256(profile, config, &filename).await {
-                Ok(expected_hash) => {
-                    match verify_stage3_integrity(&cached_path, &expected_hash).await {
-                        Ok(true) => {
-                            println!(
-                                "✅ Cached stage3 successfully verified : {}",
-                                cached_path.display()
-                            );
-                            return Ok(cached_path.to_string_lossy().to_string());
-                        }
-                        Ok(false) => {
-                            println!("❌ Cached stage3 corrupted, deleting and re-downloading...");
-                            if let Err(e) = tokio::fs::remove_file(&cached_path).await {
-                                log::warn!("Error deleting corrupted file : {e}");
-                            }
-                        }
-                        Err(e) => {
-                            log::warn!("Error during SHA256 verification : {e}, re-downloading...")
+            match download_stage3_sha256(profile, config, &filename) {
+                Ok(expected_hash) => match verify_stage3_integrity(&cached_path, &expected_hash) {
+                    Ok(true) => {
+                        println!(
+                            "✅ Cached stage3 successfully verified : {}",
+                            cached_path.display()
+                        );
+                        return Ok(cached_path.to_string_lossy().to_string());
+                    }
+                    Ok(false) => {
+                        println!("❌ Cached stage3 corrupted, deleting and re-downloading...");
+                        if let Err(e) = std::fs::remove_file(&cached_path) {
+                            log::warn!("Error deleting corrupted file : {e}");
                         }
                     }
-                }
+                    Err(e) => {
+                        log::warn!("Error during SHA256 verification : {e}, re-downloading...")
+                    }
+                },
                 Err(e) => log::warn!("Unable to download SHA256 hash : {e}, re-downloading..."),
             }
         }
@@ -255,45 +255,35 @@ pub async fn download_stage3_with_cache(
     let cache_dir = cache_path.parent().unwrap().to_str().unwrap();
 
     println!("📦 Downloading stage3 to cache...");
-    let downloaded_path = download_stage3_with_progress(profile, cache_dir, config).await?;
+    let downloaded_path = download_stage3_with_progress(profile, cache_dir, config)?;
 
     // Verify the downloaded file
     println!("🔍 Verifying downloaded file integrity...");
-    match download_stage3_sha256(profile, config, &filename).await {
-        Ok(expected_hash) => {
-            let file_path = std::path::Path::new(&downloaded_path);
-            match verify_stage3_integrity(file_path, &expected_hash).await {
-                Ok(true) => {
-                    println!("✅ Stage3 downloaded and verified successfully");
-                }
-                Ok(false) => {
-                    // Delete the corrupted file
-                    if let Err(e) = tokio::fs::remove_file(file_path).await {
-                        log::warn!("Error deleting corrupted file : {e}");
-                    }
-                    return Err("Downloaded file is corrupted (SHA256 verification failed).".into());
-                }
-                Err(e) => {
-                    log::warn!("Error during SHA256 verification : {e}");
-                    return Err(format!("Error during SHA256 verification : {e}").into());
-                }
+    if let Ok(expected_hash) = download_stage3_sha256(profile, config, &filename) {
+        let file_path = std::path::Path::new(&downloaded_path);
+        match verify_stage3_integrity(file_path, &expected_hash) {
+            Ok(true) => {
+                println!("✅ Stage3 downloaded and verified successfully");
             }
-        }
-        Err(e) => {
-            log::warn!("Unable to download SHA256 hash for verification : {e}");
-            println!("⚠️ File downloaded without SHA256 verification (hash not available)");
+            Ok(false) => {
+                if let Err(e) = std::fs::remove_file(file_path) {
+                    return Err(DeletingCorrupted(e));
+                }
+                return Err(DownloadedFileCorrupted);
+            }
+            Err(e) => panic!("{e:?}"),
         }
     }
 
     Ok(downloaded_path)
 }
 
-pub async fn download_stage3_with_progress(
+pub fn download_stage3_with_progress(
     profile: &Arch,
     destination_path: &str,
     config: &Config,
-) -> Result<String, Box<dyn std::error::Error>> {
-    let filename = get_current_stage3_filename(profile, config).await?;
+) -> Result<String, ChrootManagerError> {
+    let filename = get_current_stage3_filename(profile, config)?;
     let base_urls = get_stage3_url(profile, config);
 
     // Build download URLs
@@ -308,11 +298,10 @@ pub async fn download_stage3_with_progress(
 
     println!("📥 Downloading : {filename}");
 
-    let client = reqwest::Client::new();
+    let client = reqwest::blocking::Client::new();
 
     // Attempt to download with different mirrors (with progress display)
-    let (successful_url, response) =
-        try_download_with_mirrors(&download_urls, &client, true).await?;
+    let (successful_url, mut response) = try_download_with_mirrors(&download_urls, &client, true)?;
 
     println!("📡 Downloading from : {successful_url}");
 
@@ -324,9 +313,9 @@ pub async fn download_stage3_with_progress(
         println!("📊 File size : unknown");
     }
 
-    let mut file = File::create(&full_path).await?;
+    let mut file = File::create(&full_path)?;
     let mut downloaded = 0u64;
-    let mut stream = response.bytes_stream();
+    let mut buffer = vec![0u8; 8192]; // 8KB buffer
 
     // Variables for speed calculation and display frequency
     let mut last_update = Instant::now();
@@ -337,10 +326,14 @@ pub async fn download_stage3_with_progress(
     // Initial progress display
     display_progress(downloaded, total_size, "0 B/s");
 
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk?;
-        file.write_all(&chunk).await?;
-        downloaded += chunk.len() as u64;
+    loop {
+        let bytes_read = response.read(&mut buffer)?;
+        if bytes_read == 0 {
+            break;
+        }
+
+        file.write_all(&buffer[..bytes_read])?;
+        downloaded += bytes_read as u64;
 
         // Update progress periodically
         let now = Instant::now();
@@ -373,12 +366,12 @@ pub async fn download_stage3_with_progress(
     Ok(full_path)
 }
 
-/// Download the SHA256 file for a given stage3
-pub async fn download_stage3_sha256(
+/// Download the SHA256 file for a given stage3 (synchronous)
+pub fn download_stage3_sha256(
     profile: &Arch,
     config: &Config,
     filename: &str,
-) -> Result<String, Box<dyn std::error::Error>> {
+) -> Result<String, ChrootManagerError> {
     let base_urls = get_stage3_url(profile, config);
     let sha256_filename = format!("{filename}.sha256");
 
@@ -388,13 +381,12 @@ pub async fn download_stage3_sha256(
         .map(|base_url| format!("{base_url}{sha256_filename}"))
         .collect();
 
-    let client = reqwest::Client::new();
+    let client = reqwest::blocking::Client::new();
 
     // Attempt to download the SHA256 file with different mirrors (without display)
-    let (_successful_url, response) =
-        try_download_with_mirrors(&sha256_urls, &client, false).await?;
+    let (successful_url, response) = try_download_with_mirrors(&sha256_urls, &client, false)?;
 
-    let sha256_content = response.text().await?;
+    let sha256_content = response.text()?;
 
     // Parse the SHA256 content (format: "hash filename")
     for line in sha256_content.lines() {
@@ -415,22 +407,17 @@ pub async fn download_stage3_sha256(
         }
     }
 
-    Err("SHA256 hash not found in file".into())
+    Err(SHA256HashNotFoundInFile)
 }
 
-/// Calculate the SHA256 of a local file
-pub async fn calculate_file_sha256(
-    file_path: &std::path::Path,
-) -> Result<String, Box<dyn std::error::Error>> {
-    use tokio::fs::File;
-    use tokio::io::AsyncReadExt;
-
-    let mut file = File::open(file_path).await?;
+/// Calculate the SHA256 of a local file (synchronous)
+pub fn calculate_file_sha256(file_path: &std::path::Path) -> Result<String, ChrootManagerError> {
+    let mut file = File::open(file_path)?;
     let mut hasher = Sha256::new();
     let mut buffer = vec![0u8; 8192]; // 8KB buffer
 
     loop {
-        let bytes_read = file.read(&mut buffer).await?;
+        let bytes_read = file.read(&mut buffer)?;
         if bytes_read == 0 {
             break;
         }
@@ -440,14 +427,14 @@ pub async fn calculate_file_sha256(
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-/// Verify the integrity of a stage3 file with its SHA256 hash
-pub async fn verify_stage3_integrity(
+/// Verify the integrity of a stage3 file with its SHA256 hash (synchronous)
+pub fn verify_stage3_integrity(
     file_path: &std::path::Path,
     expected_sha256: &str,
-) -> Result<bool, Box<dyn std::error::Error>> {
+) -> Result<bool, ChrootManagerError> {
     println!("🔍 SHA256 verification in progress...");
 
-    let calculated_hash = calculate_file_sha256(file_path).await?;
+    let calculated_hash = calculate_file_sha256(file_path)?;
     let is_valid = calculated_hash.to_lowercase() == expected_sha256.to_lowercase();
 
     if is_valid {
