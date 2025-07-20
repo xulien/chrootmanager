@@ -1,7 +1,7 @@
 use crate::{error::ChrootManagerError};
 use inquire::{InquireError, Select};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashSet, fs, io, path::PathBuf};
+use std::{collections::HashSet, fs, path::PathBuf};
 use crate::mirror::mirrors::Mirrors;
 
 #[derive(Debug, Serialize, Deserialize)]

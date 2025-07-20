@@ -1,9 +1,11 @@
-use crate::mirror::MirrorError;
+use crate::error::ChrootManagerError;
+use crate::error::ChrootManagerError::{
+    DocumentNoRootElementMirrors, ElementOutsideMirrorGroup, EmptyDataReceived,
+    MirrorGroupNoRootElementMirrors, UriOutsideMirror,
+};
 use log::{debug, info, warn};
 use std::io::Cursor;
 use xml::reader::{EventReader, XmlEvent};
-
-pub(crate) const MIRRORS_URL: &str = "https://api.gentoo.org/mirrors/distfiles.xml";
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Protocol {
@@ -95,25 +97,11 @@ impl UriInfo {
     }
 }
 
-impl From<reqwest::Error> for MirrorError {
-    fn from(error: reqwest::Error) -> Self {
-        MirrorError::Network(error)
-    }
-}
-
-impl From<xml::reader::Error> for MirrorError {
-    fn from(error: xml::reader::Error) -> Self {
-        MirrorError::XmlParsing(error)
-    }
-}
-
 /// Parse the XML data of mirrors and return a list of mirrors
-pub(crate) fn parse_mirrors_xml(data: &[u8]) -> Result<Vec<Mirror>, MirrorError> {
+pub(crate) fn parse_mirrors_xml(data: &[u8]) -> Result<Vec<Mirror>, ChrootManagerError> {
     // Validation du format de base
     if data.is_empty() {
-        return Err(MirrorError::InvalidFormat(
-            "Empty data received".to_string(),
-        ));
+        return Err(EmptyDataReceived);
     }
 
     let cursor = Cursor::new(data);
@@ -146,10 +134,7 @@ pub(crate) fn parse_mirrors_xml(data: &[u8]) -> Result<Vec<Mirror>, MirrorError>
                     }
                     "mirrorgroup" => {
                         if !found_mirrors_root {
-                            return Err(MirrorError::InvalidFormat(
-                                "Element 'mirrorgroup' found without root element 'mirrors'"
-                                    .to_string(),
-                            ));
+                            return Err(MirrorGroupNoRootElementMirrors);
                         }
                         debug!("Start of a mirrorgroup");
                         in_mirrorgroup = true;
@@ -183,9 +168,7 @@ pub(crate) fn parse_mirrors_xml(data: &[u8]) -> Result<Vec<Mirror>, MirrorError>
                     }
                     "mirror" => {
                         if !in_mirrorgroup {
-                            return Err(MirrorError::InvalidFormat(
-                                "'Mirror' element found outside a mirrorgroup".to_string(),
-                            ));
+                            return Err(ElementOutsideMirrorGroup);
                         }
                         debug!("Beginning of a mirror");
                         in_mirror = true;
@@ -201,9 +184,7 @@ pub(crate) fn parse_mirrors_xml(data: &[u8]) -> Result<Vec<Mirror>, MirrorError>
                     }
                     "uri" => {
                         if !in_mirror {
-                            return Err(MirrorError::InvalidFormat(
-                                "'uri' element found outside a mirror".to_string(),
-                            ));
+                            return Err(UriOutsideMirror);
                         }
                         debug!("Start of a URI");
                         in_uri = true;
@@ -313,9 +294,7 @@ pub(crate) fn parse_mirrors_xml(data: &[u8]) -> Result<Vec<Mirror>, MirrorError>
     }
 
     if !found_mirrors_root {
-        return Err(MirrorError::InvalidFormat(
-            "XML document does not contain a root element 'mirrors'".to_string(),
-        ));
+        return Err(DocumentNoRootElementMirrors);
     }
 
     info!("Parsing completed. {} mirrors found", mirrors.len());

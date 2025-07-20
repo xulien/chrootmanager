@@ -1,9 +1,10 @@
 use crate::error::ChrootManagerError;
-use crate::mirror::parser::{Mirror, Protocol, UriInfo, MIRRORS_URL};
-use crate::mirror::{parser, MirrorError};
-use log::info;
+use crate::mirror::parser::{Mirror, Protocol, UriInfo};
+use crate::mirror::parser;
 use std::collections::HashSet;
 use std::time::Duration;
+
+const MIRRORS_URL: &str = "https://api.gentoo.org/mirrors/distfiles.xml";
 
 #[derive(Debug)]
 pub struct Mirrors {
@@ -12,18 +13,14 @@ pub struct Mirrors {
 
 impl Mirrors {
     pub fn fetch() -> Result<Self, ChrootManagerError> {
-        println!("\n🔄 Retrieving the list of mirror...");
+        let data = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()?
+            .get(MIRRORS_URL)
+            .send()?
+            .bytes()?;
 
-        let mirrors = match get_mirrors() {
-            Ok(mirrors) => mirrors,
-            Err(e) => {
-                return Err(ChrootManagerError::FetchFailed(format!(
-                    "❌ Error retrieving mirror : {e}"
-                )))
-            }
-        };
-
-        println!("✅ {} mirror found\n", mirrors.len());
+        let mirrors = parser::parse_mirrors_xml(&data)?;
 
         Ok(Self { mirrors })
     }
@@ -91,18 +88,4 @@ impl Mirrors {
             .collect();
         uri_infos_filtered[0].uri.clone()
     }
-}
-
-pub fn get_mirrors() -> Result<Vec<Mirror>, MirrorError> {
-    info!("Data recovery from {MIRRORS_URL}");
-
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()?;
-    let response = client.get(MIRRORS_URL).send()?;
-    let data = response.bytes()?;
-
-    info!("Data received: {} bytes", data.len());
-
-    parser::parse_mirrors_xml(&data)
 }
