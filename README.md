@@ -2,6 +2,13 @@
 
 A simple command-line tool for managing Gentoo chroot environments.
 
+## Installation
+```bash
+eselect repository add xulien git https://github.com/xulien/gentoo-overlay.git
+emaint sync -r xulien
+emerge -av app-emulation/chrootmanager --autounmask
+```
+
 ## Todo List
 
 ### Current Features
