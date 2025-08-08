@@ -11,7 +11,7 @@ path = "src/main.rs"
 # Dependencies from workspace
 tokio = { version = "1.47.1", features = ["rt", "rt-multi-thread", "macros"] }
 serde = { version = "1.0.219", features = ["derive"] }
-toml = "0.9.4"
+toml = "=0.9.4"
 reqwest = { version = "0.12.22", features = ["stream"] }
 log = "0.4.27"
 thiserror = "2.0.12"
@@ -25,3 +25,8 @@ sha2 = "0.10.9"
 tokio-stream = "0.1.17"
 xml-rs = "0.8.27"
 home = "0.5.11"
+
+# toml dependencies
+hashbrown = "=0.15.4"
+indexmap = { version = "*", default-features = false }
+
