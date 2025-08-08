@@ -1,0 +1,27 @@
+[package]
+name = "chrootmanager"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "chrootmanager"
+path = "src/main.rs"
+
+[dependencies]
+# Dependencies from workspace
+tokio = { version = "1.47.1", features = ["rt", "rt-multi-thread", "macros"] }
+serde = { version = "1.0.219", features = ["derive"] }
+toml = "0.9.4"
+reqwest = { version = "0.12.22", features = ["stream"] }
+log = "0.4.27"
+thiserror = "2.0.12"
+inquire = "0.7.5"
+
+# Dependencies from cli package
+clap = { version = "4.5.43", features = ["derive"] }
+env_logger = "0.11.8"
+colored = "3.0.0"
+sha2 = "0.10.9"
+tokio-stream = "0.1.17"
+xml-rs = "0.8.27"
+home = "0.5.11"
